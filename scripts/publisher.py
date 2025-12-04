@@ -1,11 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import socket
 import json
 import rospy
 from time import sleep
 from std_msgs.msg import String
-from waterlinked_a50_ros_driver.msg import DVL
-from waterlinked_a50_ros_driver.msg import DVLBeam
+from dvl_a50_ros_driver.msg import DVL
+from dvl_a50_ros_driver.msg import DVLBeam
 import select
 
 def connect():
@@ -42,7 +42,7 @@ def getData():
 			rospy.logerr("Lost connection with the DVL, reinitiating the connection: {}".format(err))
 			connect()
 			continue
-		raw_data = raw_data + rec
+		raw_data = raw_data + str(rec.decode())
 	raw_data = oldJson + raw_data
 	oldJson = ""
 	raw_data = raw_data.split('\n')
