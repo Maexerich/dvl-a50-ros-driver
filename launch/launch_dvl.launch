@@ -3,5 +3,6 @@
     <node pkg="dvl_a50_ros_driver" type="publisher.py" name="publisher">
         <param name="ip" value="192.168.1.77"/>
         <param name="port" value="16171"/>
+        <param name="do_log_raw_data" value="true"/>
     </node>
 </launch>

@@ -53,6 +53,7 @@ add_message_files(
   FILES
   DVL.msg
   DVLBeam.msg
+  DVLEstimate.msg
 )
 
 ## Generate services in the 'srv' folder
