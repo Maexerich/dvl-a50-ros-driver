@@ -127,7 +127,7 @@ def publisher():
 		
 		elif msg_type == "position_local":
 			estimate.header.stamp = rospy.Time.now()
-			estimate.header.frame_id = "dvl_odom"
+			estimate.header.frame_id = "dvl_link"
 			estimate.ts = data["ts"]
 			estimate.x = data["x"]
 			estimate.y = data["y"]
