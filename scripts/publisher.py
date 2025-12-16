@@ -72,37 +72,35 @@ def configure():
 	}
 	command_str = json.dumps({"command":"set_config", "parameters":config})
 
-    try:
-        rospy.loginfo("Sending configuration to DVL: {}".format(command_str))
-        if not command_str.endswith('\n'):
-            command_str = command_str + '\n'
-        s.sendall(command_str.encode("utf-8"))
-        
-        # --- NEW CODE: Wait for response ---
-        # We loop briefly to read the socket until we get the response
-        # This handles cases where a velocity packet might arrive before the response
-        start_time = rospy.Time.now()
-        while (rospy.Time.now() - start_time).to_sec() < 2.0: # 2 second timeout
-            raw_resp = getData() # Reuse your existing getData function!
-            try:
-                data = json.loads(raw_resp)
-                if data.get("type") == "response":
-                    if data.get("success"):
-                        rospy.loginfo("Configuration Applied Successfully.")
-                        return # Exit function, success!
-                    else:
-                        rospy.logerr(f"Configuration Failed: {data.get('message')}")
-                        return
-                # If we get velocity data here, we just ignore it or log it, 
-                # but we keep looping to find the response.
-            except ValueError:
-                pass
-        
-        rospy.logwarn("Timed out waiting for configuration response.")
-        # -----------------------------------
+	try:
+		rospy.loginfo("Sending configuration to DVL: {}".format(command_str))
+		if not command_str.endswith('\n'):
+			command_str = command_str + '\n'
+		s.sendall(command_str.encode("utf-8"))
+		
+		# --- NEW CODE: Wait for response ---
+		start_time = rospy.Time.now()
+		while (rospy.Time.now() - start_time).to_sec() < 2.0: # 2 second timeout
+			raw_resp = getData() # Reuse your existing getData function!
+			try:
+				data = json.loads(raw_resp)
+				if data.get("type") == "response":
+					if data.get("success"):
+						rospy.loginfo("Configuration Applied Successfully.")
+						return # Exit function, success!
+					else:
+						rospy.logerr(f"Configuration Failed: {data.get('message')}")
+						return
+				# If we get velocity data here, we just ignore it or log it, 
+				# but we keep looping to find the response.
+			except ValueError:
+				pass
+		
+		rospy.logwarn("Timed out waiting for configuration response.")
+		# -----------------------------------
 
-    except socket.error as err:
-        rospy.logerr("Failed to send configuration to DVL: {}".format(err))
+	except socket.error as err:
+		rospy.logerr("Failed to send configuration to DVL: {}".format(err))
 
 def command_callback(msg):
 	"""
@@ -161,7 +159,7 @@ def publisher():
 		# do_log_raw_data is true: only fill in theDVL using velocity data and publish to dvl/data topic
 
 		if do_log_raw_data:
-			rospy.loginfo(raw_data)
+			# rospy.loginfo(raw_data)
 			pub_raw.publish(raw_data)
 
 		# Get message type
@@ -231,11 +229,11 @@ def publisher():
 		elif msg_type == "response":
 			# This line is prints to terminal and publishes to /rosout
 			success = data.get("success", False)
-			message = data.get("message", "No message")
+			# message = data.get("message", "No message")
 			if success:
-				rospy.loginfo("DVL COMMAND SUCCESS: {}".format(message))
+				rospy.loginfo("DVL COMMAND SUCCESS: {}".format(data))
 			else:
-				rospy.logerr("DVL COMMAND FAILED: {}".format(message))
+				rospy.logerr("DVL COMMAND FAILED: {}".format(data))
 
 		elif msg_type == "error":
 			rospy.logerr("DVL ERROR: {}".format(data.get("message", "")))
