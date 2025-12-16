@@ -17,7 +17,7 @@ def connect():
 		s.settimeout(1)
 
 		# Reset dead-reckoning estimate on connection
-		reset_cmd = '{"command":"reset_position_local"}'
+		reset_cmd = '{"command":"reset_dead_reckoning"}'
 		s.sendall(reset_cmd.encode("utf-8"))
 		rospy.loginfo("Connected to DVL at and sent reset_dead_reckoning command.")
 	except socket.error as err:
@@ -127,7 +127,7 @@ def publisher():
 		
 		elif msg_type == "position_local":
 			estimate.header.stamp = rospy.Time.now()
-			estimate.header.frame_id = "odom"
+			estimate.header.frame_id = "dvl_odom"
 			estimate.ts = data["ts"]
 			estimate.x = data["x"]
 			estimate.y = data["y"]
