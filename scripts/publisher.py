@@ -16,10 +16,10 @@ def connect():
 		s.connect((TCP_IP, TCP_PORT))
 		s.settimeout(1)
 
-		# Reset dead-reckoning estimate on connection
-		reset_cmd = '{"command":"reset_dead_reckoning"}'
-		s.sendall(reset_cmd.encode("utf-8"))
-		rospy.loginfo("Connected to DVL at and sent reset_dead_reckoning command.")
+		# # Reset dead-reckoning estimate on connection
+		# reset_cmd = '{"command":"reset_dead_reckoning"}'
+		# s.sendall(reset_cmd.encode("utf-8"))
+		# rospy.loginfo("Connected to DVL at and sent reset_dead_reckoning command.")
 	except socket.error as err:
 		rospy.logerr("No route to host, DVL might be booting? {}".format(err))
 		sleep(1)
@@ -57,11 +57,98 @@ def getData():
 	raw_data = raw_data[0]
 	return raw_data
 
+def configure():
+	"""
+	Sends configuration commands to the DVL after connection.
+	"""
+	global s
+	config = {
+		"speed_of_sound": rospy.get_param("~speed_of_sound", 1480),
+		"acoustic_enabled": rospy.get_param("~acoustic_enabled", True),
+		"dark_mode_enabled": rospy.get_param("~dark_mode_enabled", False),
+		"mounting_rotation_offset": rospy.get_param("~mounting_rotation_offset", 0),
+		"range_mode": rospy.get_param("~range_mode", "auto"),
+		"periodic_cycling_enabled": rospy.get_param("~periodic_cycling_enabled", True)
+	}
+	command_str = json.dumps({"command":"set_config", "parameters":config})
+
+    try:
+        rospy.loginfo("Sending configuration to DVL: {}".format(command_str))
+        if not command_str.endswith('\n'):
+            command_str = command_str + '\n'
+        s.sendall(command_str.encode("utf-8"))
+        
+        # --- NEW CODE: Wait for response ---
+        # We loop briefly to read the socket until we get the response
+        # This handles cases where a velocity packet might arrive before the response
+        start_time = rospy.Time.now()
+        while (rospy.Time.now() - start_time).to_sec() < 2.0: # 2 second timeout
+            raw_resp = getData() # Reuse your existing getData function!
+            try:
+                data = json.loads(raw_resp)
+                if data.get("type") == "response":
+                    if data.get("success"):
+                        rospy.loginfo("Configuration Applied Successfully.")
+                        return # Exit function, success!
+                    else:
+                        rospy.logerr(f"Configuration Failed: {data.get('message')}")
+                        return
+                # If we get velocity data here, we just ignore it or log it, 
+                # but we keep looping to find the response.
+            except ValueError:
+                pass
+        
+        rospy.logwarn("Timed out waiting for configuration response.")
+        # -----------------------------------
+
+    except socket.error as err:
+        rospy.logerr("Failed to send configuration to DVL: {}".format(err))
+
+def command_callback(msg):
+	"""
+	Listens to /dvl/send_command topic.
+	Expects a JSON string. 
+	Available commands:
+	- '{"command":"reset_dead_reckoning"}'
+	- '{"command":"calibrate_gyro"}' (only when platform is stationary)
+	- '{"command":"trigger_ping"}'
+	- '{"command":"get_config"}'
+	- '{"command":"set_config", "parameters":{
+			"speed_of_sound":1480,
+			"acoustic_enabled":true,
+			"dark_mode_enabled":false,
+			"mounting_rotation_offset":0,
+			"range_mode":"auto",
+			"periodic_cycling_enabled":true}}'
+	"""
+	global s
+	command_str = msg.data
+
+	# Check JSON validity
+	try:
+		json_check = json.loads(command_str)
+		if "command" not in json_check:
+			rospy.logerr("DVL command JSON must contain a 'command' field.")
+			return
+	except ValueError as e:
+		rospy.logerr("Invalid JSON command received. Not sending to DVL.")
+		return
+	
+	try:
+		rospy.loginfo("Sending command to DVL: {}".format(command_str))
+		if not command_str.endswith('\n'):
+			command_str = command_str + '\n'
+		s.sendall(command_str.encode("utf-8"))
+	except socket.error as err:
+		rospy.logerr("Failed to send command to DVL: {}".format(err))
+
 
 def publisher():
 	pub_raw = rospy.Publisher('dvl/json_data', String, queue_size=10)
 	pub = rospy.Publisher('dvl/data', DVL, queue_size=10)
 	pub_estimate = rospy.Publisher('/dvl/estimate', DVLEstimate, queue_size=10)
+
+	rospy.Subscriber('dvl/send_command', String, command_callback)
 
 	rate = rospy.Rate(10) # 10hz
 	while not rospy.is_shutdown():
@@ -143,7 +230,15 @@ def publisher():
 
 		elif msg_type == "response":
 			# This line is prints to terminal and publishes to /rosout
-			rospy.loginfo("DVL Response: {}".format(data.get("message", "")))
+			success = data.get("success", False)
+			message = data.get("message", "No message")
+			if success:
+				rospy.loginfo("DVL COMMAND SUCCESS: {}".format(message))
+			else:
+				rospy.logerr("DVL COMMAND FAILED: {}".format(message))
+
+		elif msg_type == "error":
+			rospy.logerr("DVL ERROR: {}".format(data.get("message", "")))
 
 		else:
 			rospy.logwarn("Unknown DVL message type: {}".format(msg_type))
@@ -157,6 +252,7 @@ if __name__ == '__main__':
 	TCP_PORT = rospy.get_param("~port", 16171)
 	do_log_raw_data = rospy.get_param("~do_log_raw_data", False)
 	connect()
+	configure()
 	try:
 		publisher()
 	except rospy.ROSInterruptException:
