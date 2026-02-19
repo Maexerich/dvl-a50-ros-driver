@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
+import math
 import socket
 import json
 import rospy
 from time import sleep
 from std_msgs.msg import String
+from nav_msgs.msg import Odometry
 from dvl_a50_ros_driver.msg import DVL
 from dvl_a50_ros_driver.msg import DVLBeam
 from dvl_a50_ros_driver.msg import DVLEstimate
@@ -33,6 +35,7 @@ beam1 = DVLBeam()
 beam2 = DVLBeam()
 beam3 = DVLBeam()
 estimate = DVLEstimate()
+odom_msg = Odometry()
 
 def getData():
 	global oldJson, s
@@ -140,11 +143,17 @@ def command_callback(msg):
 	except socket.error as err:
 		rospy.logerr("Failed to send command to DVL: {}".format(err))
 
+def get_ros_timestamp(sensor_time_sec):
+	global time_offset
+	if time_offset is None:
+		time_offset = rospy.Time.now().to_sec() - sensor_time_sec
+	return rospy.Time.from_sec(sensor_time_sec + time_offset)
 
 def publisher():
 	pub_raw = rospy.Publisher('dvl/json_data', String, queue_size=10)
 	pub = rospy.Publisher('dvl/data', DVL, queue_size=10)
 	pub_estimate = rospy.Publisher('/dvl/estimate', DVLEstimate, queue_size=10)
+	pub_dvl_odom = rospy.Publisher('/dvl/odom', Odometry, queue_size=10)
 
 	rospy.Subscriber('dvl/send_command', String, command_callback)
 
@@ -166,9 +175,13 @@ def publisher():
 		msg_type = data.get("type", "unknown")
 
 		if msg_type == "velocity":
-			theDVL.header.stamp = rospy.Time.now()
+			theDVL.header.stamp = get_ros_timestamp(
+				sensor_time_sec=data["time_of_validity"]*1e-6 # Convert microseconds to seconds
+				)
 			theDVL.header.frame_id = "dvl_link"
-			theDVL.time = data["time"]
+			theDVL.time_since_last_data_us = data["time"]
+			theDVL.time_of_validity_us = data["time_of_validity"]
+			theDVL.time_of_transmission_us = data["time_of_transmission"]
 			theDVL.velocity.x = data["vx"]
 			theDVL.velocity.y = data["vy"]
 			theDVL.velocity.z = data["vz"]
@@ -177,6 +190,10 @@ def publisher():
 			theDVL.velocity_valid = data["velocity_valid"]
 			theDVL.status = data["status"]
 			theDVL.form = data["format"]
+			cov_matrix = data.get("covariance", [])
+			if len(cov_matrix) == 3: # Covariance is list containing 3 lists
+				 # Flatten to 9 element list
+				theDVL.covariance = [item for row in cov_matrix for item in row]
 
 			beam0.id = data["transducers"][0]["id"]
 			beam0.velocity = data["transducers"][0]["velocity"]
@@ -211,7 +228,9 @@ def publisher():
 			pub.publish(theDVL)
 		
 		elif msg_type == "position_local":
-			estimate.header.stamp = rospy.Time.now()
+			estimate.header.stamp = get_ros_timestamp(
+				sensor_time_sec=data["ts"] # already in seconds
+			)
 			estimate.header.frame_id = "dvl_link"
 			estimate.ts = data["ts"]
 			estimate.x = data["x"]
@@ -225,6 +244,8 @@ def publisher():
 
 			pub_estimate.publish(estimate)
 			# print(f"Dead-reckoning euclidean distance {(estimate.x**2 + estimate.y**2 + estimate.z**2)**0.5:.2f} m")
+
+			publish_odom(data)
 
 		elif msg_type == "response":
 			# This line is prints to terminal and publishes to /rosout
@@ -242,6 +263,38 @@ def publisher():
 			rospy.logwarn("Unknown DVL message type: {}".format(msg_type))
 
 		rate.sleep()
+
+def publish_odom(data):
+	# ... inside loop, elif msg_type == "position_local": ...
+	odom_msg.header.stamp = get_ros_timestamp(data["ts"])
+	odom_msg.header.frame_id = "dvl_odom"      # Fixed frame
+	odom_msg.child_frame_id = "dvl_link"       # Moving frame
+
+	# Position
+	odom_msg.pose.pose.position.x = data["x"]
+	odom_msg.pose.pose.position.y = data["y"]
+	odom_msg.pose.pose.position.z = data["z"]
+
+	# Orientation (Convert Euler Angles degrees to Quaternion)
+	import tf.transformations
+	q = tf.transformations.quaternion_from_euler(
+		math.radians(data["roll"]), 
+		math.radians(data["pitch"]), 
+		math.radians(data["yaw"])
+	)
+	odom_msg.pose.pose.orientation.x = q[0]
+	odom_msg.pose.pose.orientation.y = q[1]
+	odom_msg.pose.pose.orientation.z = q[2]
+	odom_msg.pose.pose.orientation.w = q[3]
+
+	# Covariance?
+	# The DVL report gives 'std': Covariance = std^2. 
+	# We populate diagonal of covariance matrix with this value for all positions.
+	cov_val = data["std"] ** 2
+	odom_msg.pose.covariance[0] = cov_val # x
+	odom_msg.pose.covariance[7] = cov_val # y
+	odom_msg.pose.covariance[14] = cov_val # z
+	# Covariance for orientation is not provided by DVL natively.
 
 if __name__ == '__main__':
 	global s, TCP_IP, TCP_PORT, do_log_raw_data
