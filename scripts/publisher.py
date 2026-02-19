@@ -37,6 +37,8 @@ beam3 = DVLBeam()
 estimate = DVLEstimate()
 odom_msg = Odometry()
 
+time_offset = None # Global variable for sensor time and ROS time offset
+
 def getData():
 	global oldJson, s
 	raw_data = ""
@@ -245,7 +247,7 @@ def publisher():
 			pub_estimate.publish(estimate)
 			# print(f"Dead-reckoning euclidean distance {(estimate.x**2 + estimate.y**2 + estimate.z**2)**0.5:.2f} m")
 
-			publish_odom(data)
+			publish_odom(pub_dvl_odom, data)
 
 		elif msg_type == "response":
 			# This line is prints to terminal and publishes to /rosout
@@ -264,7 +266,7 @@ def publisher():
 
 		rate.sleep()
 
-def publish_odom(data):
+def publish_odom(pub_dvl_odom, data):
 	# ... inside loop, elif msg_type == "position_local": ...
 	odom_msg.header.stamp = get_ros_timestamp(data["ts"])
 	odom_msg.header.frame_id = "dvl_odom"      # Fixed frame
@@ -295,6 +297,8 @@ def publish_odom(data):
 	odom_msg.pose.covariance[7] = cov_val # y
 	odom_msg.pose.covariance[14] = cov_val # z
 	# Covariance for orientation is not provided by DVL natively.
+
+	pub_dvl_odom.publish(odom_msg)
 
 if __name__ == '__main__':
 	global s, TCP_IP, TCP_PORT, do_log_raw_data
