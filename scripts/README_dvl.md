@@ -21,6 +21,9 @@ This node (`a50_pub`) interfaces with the Water Linked DVL A50 via TCP. It perfo
 |-------|------|-------------|
 | `dvl/send_command` | `std_msgs/String` | Accepts JSON commands (e.g., reset dead reckoning, calibrate gyro). |
 
+### Command Logging
+Commands sent to `dvl/send_command` are logged. The driver listens for JSON responses on the TCP connection and publishes them to `dvl/json_data` if `~do_log_raw_data` is true. The `dvl_mission_control.py` script uses this to verify command execution (e.g., `reset_dead_reckoning`).
+
 ### Parameters
 | Parameter | Default | Description |
 |-----------|---------|-------------|
