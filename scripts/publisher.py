@@ -181,7 +181,7 @@ def publisher():
 				sensor_time_sec=data["time_of_validity"]*1e-6 # Convert microseconds to seconds
 				)
 			theDVL.header.frame_id = "dvl_link"
-			theDVL.time_since_last_data_us = data["time"]
+			theDVL.time_since_last_data_ms = data["time"] # Time is provided in ms
 			theDVL.time_of_validity_us = data["time_of_validity"]
 			theDVL.time_of_transmission_us = data["time_of_transmission"]
 			theDVL.velocity.x = data["vx"]
